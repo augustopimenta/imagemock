@@ -36,7 +36,7 @@ func main() {
 
 	go clearCache()
 
-	//gin.SetMode(gin.ReleaseMode)
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
 	r.GET("/", func(c *gin.Context) {
@@ -169,7 +169,7 @@ func imageToBytes(image image.Image) (*bytes.Buffer, error) {
 }
 
 func getPort() (string) {
-	port := "8081"
+	port := "8080"
 	if len(os.Args) > 1 {
 		port = os.Args[1]
 	}
