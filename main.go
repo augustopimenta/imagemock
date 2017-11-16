@@ -13,14 +13,27 @@ import (
 	"image"
 	"bytes"
 	"image/png"
+	"errors"
+	"time"
+	"runtime/debug"
 )
+type cacheImage struct{
+	image *bytes.Buffer
+	lifeTime int64
+}
 
 const (
 	maxImageSize = 5000
 	minImageSize = 50
+	cacheTimeInSeconds = 10
+	cacheRemoveRoutineTimeInSeconds = 1
 )
 
 func main() {
+	cache := make(map[string]*cacheImage)
+
+	go clearCache(&cache)
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
@@ -41,6 +54,11 @@ func main() {
 
 		height, err := strconv.Atoi(matches[3])
 
+		background := c.DefaultQuery("bg", "666666")
+		fColor := c.DefaultQuery("c", "FFFFFF")
+		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", width, height))
+
+
 		if err != nil {
 			height = width
 		}
@@ -55,50 +73,78 @@ func main() {
 			return
 		}
 
-		dc := gg.NewContext(width, height)
-		dc.DrawRectangle(0,0, float64(width), float64(height))
+		if image, ok := cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text] ; ok{
+			c.Data(http.StatusOK, "image/png", image.image.Bytes())
+			cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text].lifeTime = time.Now().Add(cacheTimeInSeconds * time.Second).Unix()
+			return
+		}
 
-		background := c.DefaultQuery("bg", "666666")
-		bgColor, err := colorful.Hex("#" + background)
+		image, err := generateImage(width, height, background, fColor, text)
 
 		if err != nil {
-			html(c, http.StatusInternalServerError, renderError("Cor de fundo incorreta"))
+			html(c, http.StatusInternalServerError, renderError(err.Error()))
 			return
 		}
 
-		dc.SetColor(bgColor)
-		dc.Fill()
-
-		fColor := c.DefaultQuery("c", "FFFFFF")
-		fontColor, err := colorful.Hex("#" + fColor)
-
-		if err != nil {
-			html(c, http.StatusInternalServerError, renderError("Cor do texto incorreta"))
-			return
+		cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text] = &cacheImage{
+			image:image,lifeTime:time.Now().Add(cacheTimeInSeconds * time.Second).Unix(),
 		}
 
-		points := math.Min(float64(width), float64(height)) / 6
-
-		dc.SetColor(fontColor);
-		if err := dc.LoadFontFace("Roboto-Medium.ttf", points); err != nil {
-			html(c, http.StatusInternalServerError, renderError("Ocorreu um erro para encontrar a fonte"))
-			return
-		}
-
-		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", width, height))
-
-		dc.DrawStringWrapped(text, float64(width/2), float64(height/2), 0.5, 0.5, float64(width - 10), 1.3, gg.AlignCenter)
-		data, err := imageToBytes(dc.Image())
-
-		if err != nil {
-			html(c, http.StatusInternalServerError, renderError("Ocorreu um erro para processar a imagem"))
-			return
-		}
-
-		c.Data(http.StatusOK, "image/png", data.Bytes())
+		c.Data(http.StatusOK, "image/png", image.Bytes())
 	})
 
 	r.Run(getPort())
+
+
+
+}
+
+func clearCache(cache *map[string]*cacheImage){
+		for {
+			for k, v := range *cache {
+				if v.lifeTime < time.Now().Unix() {
+					delete(*cache, k)
+					fmt.Println("removendo cache, index : ",k)
+				}
+			}
+			time.Sleep(cacheRemoveRoutineTimeInSeconds * time.Second)
+			debug.FreeOSMemory()
+		}
+}
+
+func generateImage(width int,height int,background string,fColor string,text string) (*bytes.Buffer, error) {
+	dc := gg.NewContext(width, height)
+	dc.DrawRectangle(0,0, float64(width), float64(height))
+
+	bgColor, err := colorful.Hex("#" + background)
+
+	if err != nil {
+		return nil, errors.New("Cor de fundo incorreta")
+	}
+
+	dc.SetColor(bgColor)
+	dc.Fill()
+
+	fontColor, err := colorful.Hex("#" + fColor)
+
+	if err != nil {
+		return nil, errors.New("Cor do texto incorreta")
+	}
+
+	points := math.Min(float64(width), float64(height)) / 6
+
+	dc.SetColor(fontColor);
+	if err := dc.LoadFontFace("Roboto-Medium.ttf", points); err != nil {
+		return nil, errors.New("Ocorreu um erro para encontrar a fonte")
+	}
+
+	dc.DrawStringWrapped(text, float64(width/2), float64(height/2), 0.5, 0.5, float64(width - 10), 1.3, gg.AlignCenter)
+	data, err := imageToBytes(dc.Image())
+
+	if err != nil {
+		return nil, errors.New("Ocorreu um erro para processar a imagem")
+	}
+	return data,nil
 }
 
 func imageToBytes(image image.Image) (*bytes.Buffer, error) {
