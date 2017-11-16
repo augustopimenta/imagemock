@@ -1,2 +1,3 @@
-# imagemock
-Mock image generator using Go
+# Image Mock
+
+Crie imagens mockadas rapidamente para o seus protótipos
