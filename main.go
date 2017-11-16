@@ -29,10 +29,12 @@ const (
 	cacheRemoveRoutineTimeInSeconds = 1
 )
 
-func main() {
-	cache := make(map[string]*cacheImage)
+var cache = make(map[string]*cacheImage)
 
-	go clearCache(&cache)
+
+func main() {
+
+	go clearCache()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -99,11 +101,12 @@ func main() {
 
 }
 
-func clearCache(cache *map[string]*cacheImage){
+func clearCache(){
 		for {
-			for k, v := range *cache {
+
+			for k, v := range cache {
 				if v.lifeTime < time.Now().Unix() {
-					delete(*cache, k)
+					delete(cache, k)
 					fmt.Println("removendo cache, index : ",k)
 				}
 			}
