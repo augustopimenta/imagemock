@@ -30,13 +30,13 @@ const (
 )
 
 var cache = make(map[string]*cacheImage)
-
+var creating = make(map[string]bool)
 
 func main() {
 
 	go clearCache()
 
-	gin.SetMode(gin.ReleaseMode)
+	//gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
 	r.GET("/", func(c *gin.Context) {
@@ -75,21 +75,27 @@ func main() {
 			return
 		}
 
-		if image, ok := cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text] ; ok{
+		keyMap := string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text
+
+		var isLock bool = false
+		for _, isLock = creating[keyMap]; isLock ; {
+			time.Sleep(5 * time.Millisecond)
+			_, isLock = creating[keyMap]
+		}
+
+		if image, ok := cache[keyMap] ; ok{
 			c.Data(http.StatusOK, "image/png", image.image.Bytes())
-			cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text].lifeTime = time.Now().Add(cacheTimeInSeconds * time.Second).Unix()
+			cache[keyMap].lifeTime = time.Now().Add(cacheTimeInSeconds * time.Second).Unix()
 			return
 		}
 
+		creating[keyMap] = true
 		image, err := generateImage(width, height, background, fColor, text)
+		delete(creating,keyMap)
 
 		if err != nil {
 			html(c, http.StatusInternalServerError, renderError(err.Error()))
 			return
-		}
-
-		cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text] = &cacheImage{
-			image:image,lifeTime:time.Now().Add(cacheTimeInSeconds * time.Second).Unix(),
 		}
 
 		c.Data(http.StatusOK, "image/png", image.Bytes())
@@ -147,6 +153,11 @@ func generateImage(width int,height int,background string,fColor string,text str
 	if err != nil {
 		return nil, errors.New("Ocorreu um erro para processar a imagem")
 	}
+
+	cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text] = &cacheImage{
+		image:data,lifeTime:time.Now().Add(cacheTimeInSeconds * time.Second).Unix(),
+	}
+
 	return data,nil
 }
 
@@ -158,7 +169,7 @@ func imageToBytes(image image.Image) (*bytes.Buffer, error) {
 }
 
 func getPort() (string) {
-	port := "8080"
+	port := "8081"
 	if len(os.Args) > 1 {
 		port = os.Args[1]
 	}
