@@ -10,6 +10,9 @@ import (
 	"net/http"
 	"github.com/lucasb-eyer/go-colorful"
 	"math"
+	"image"
+	"bytes"
+	"image/png"
 )
 
 const (
@@ -85,7 +88,7 @@ func main() {
 		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", width, height))
 
 		dc.DrawStringWrapped(text, float64(width/2), float64(height/2), 0.5, 0.5, float64(width - 10), 1.3, gg.AlignCenter)
-		data, err := dc.ReturnBytes()
+		data, err := imageToBytes(dc.Image())
 
 		if err != nil {
 			html(c, http.StatusInternalServerError, renderError("Ocorreu um erro para processar a imagem"))
@@ -96,6 +99,13 @@ func main() {
 	})
 
 	r.Run(getPort())
+}
+
+func imageToBytes(image image.Image) (*bytes.Buffer, error) {
+	buf := new(bytes.Buffer)
+	err := png.Encode(buf, image)
+
+	return buf, err;
 }
 
 func getPort() (string) {
