@@ -58,12 +58,12 @@ func main() {
 
 		background := c.DefaultQuery("bg", "666666")
 		fColor := c.DefaultQuery("c", "FFFFFF")
-		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", width, height))
-
 
 		if err != nil {
 			height = width
 		}
+
+		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", width, height))
 
 		if width > maxImageSize || height > maxImageSize {
 			html(c, http.StatusInternalServerError, renderError("A imagem deve ter no máximo 5000 x 5000"))
@@ -84,7 +84,7 @@ func main() {
 		}
 
 		if image, ok := cache[keyMap] ; ok{
-			c.Data(http.StatusOK, "image/png", image.image.Bytes())
+			sendImage(c,image.image)
 			cache[keyMap].lifeTime = time.Now().Add(cacheTimeInSeconds * time.Second).Unix()
 			return
 		}
@@ -97,14 +97,18 @@ func main() {
 			html(c, http.StatusInternalServerError, renderError(err.Error()))
 			return
 		}
-
-		c.Data(http.StatusOK, "image/png", image.Bytes())
+		sendImage(c,image)
 	})
 
 	r.Run(getPort())
 
+}
 
-
+func sendImage(c *gin.Context, image *bytes.Buffer){
+	c.Header("Pragma","public")
+	c.Header("Cache-Control","max-age=86400")
+	c.Header("Expires",time.Now().AddDate(60, 0, 0).Format(http.TimeFormat))
+	c.Data(http.StatusOK, "image/png", image.Bytes())
 }
 
 func clearCache(){
