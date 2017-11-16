@@ -25,8 +25,8 @@ type cacheImage struct{
 const (
 	maxImageSize = 5000
 	minImageSize = 50
-	cacheTimeInSeconds = 10
-	cacheRemoveRoutineTimeInSeconds = 1
+	cacheTimeInSeconds = 100
+	cacheRemoveRoutineTimeInSeconds = 5
 )
 
 var cache = make(map[string]*cacheImage)
