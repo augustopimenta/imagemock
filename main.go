@@ -25,12 +25,12 @@ type cacheImage struct{
 const (
 	maxImageSize = 5000
 	minImageSize = 50
-	cacheTimeInSeconds = 10
-	cacheRemoveRoutineTimeInSeconds = 1
+	cacheTimeInSeconds = 100
+	cacheRemoveRoutineTimeInSeconds = 5
 )
 
 var cache = make(map[string]*cacheImage)
-
+var creating = make(map[string]bool)
 
 func main() {
 
@@ -58,12 +58,12 @@ func main() {
 
 		background := c.DefaultQuery("bg", "666666")
 		fColor := c.DefaultQuery("c", "FFFFFF")
-		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", width, height))
-
 
 		if err != nil {
 			height = width
 		}
+
+		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", width, height))
 
 		if width > maxImageSize || height > maxImageSize {
 			html(c, http.StatusInternalServerError, renderError("A imagem deve ter no máximo 5000 x 5000"))
@@ -75,30 +75,40 @@ func main() {
 			return
 		}
 
-		if image, ok := cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text] ; ok{
-			c.Data(http.StatusOK, "image/png", image.image.Bytes())
-			cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text].lifeTime = time.Now().Add(cacheTimeInSeconds * time.Second).Unix()
+		keyMap := string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text
+
+		var isLock bool = false
+		for _, isLock = creating[keyMap]; isLock ; {
+			time.Sleep(5 * time.Millisecond)
+			_, isLock = creating[keyMap]
+		}
+
+		if image, ok := cache[keyMap] ; ok{
+			sendImage(c,image.image)
+			cache[keyMap].lifeTime = time.Now().Add(cacheTimeInSeconds * time.Second).Unix()
 			return
 		}
 
+		creating[keyMap] = true
 		image, err := generateImage(width, height, background, fColor, text)
+		delete(creating,keyMap)
 
 		if err != nil {
 			html(c, http.StatusInternalServerError, renderError(err.Error()))
 			return
 		}
-
-		cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text] = &cacheImage{
-			image:image,lifeTime:time.Now().Add(cacheTimeInSeconds * time.Second).Unix(),
-		}
-
-		c.Data(http.StatusOK, "image/png", image.Bytes())
+		sendImage(c,image)
 	})
 
 	r.Run(getPort())
 
+}
 
-
+func sendImage(c *gin.Context, image *bytes.Buffer){
+	c.Header("Pragma","public")
+	c.Header("Cache-Control","max-age=86400")
+	c.Header("Expires",time.Now().AddDate(60, 0, 0).Format(http.TimeFormat))
+	c.Data(http.StatusOK, "image/png", image.Bytes())
 }
 
 func clearCache(){
@@ -147,6 +157,11 @@ func generateImage(width int,height int,background string,fColor string,text str
 	if err != nil {
 		return nil, errors.New("Ocorreu um erro para processar a imagem")
 	}
+
+	cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text] = &cacheImage{
+		image:data,lifeTime:time.Now().Add(cacheTimeInSeconds * time.Second).Unix(),
+	}
+
 	return data,nil
 }
 
