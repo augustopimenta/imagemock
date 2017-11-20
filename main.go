@@ -37,17 +37,19 @@ func main() {
 	go clearCache()
 
 	gin.SetMode(gin.ReleaseMode)
+
 	r := gin.Default()
+	r.LoadHTMLFiles("index.html")
 
 	r.GET("/", func(c *gin.Context) {
-		html(c, http.StatusOK, renderHelp())
+		c.HTML(http.StatusOK, "index.html", gin.H{})
 	})
 
 	r.GET("/:size", func(c *gin.Context) {
 		width, height, err := extractSize(c.Param("size"))
 
 		if err != nil {
-			html(c, http.StatusInternalServerError, renderError(err.Error()))
+			c.HTML(http.StatusInternalServerError, "index.html", gin.H{"error": err.Error()})
 			return
 		}
 
@@ -63,22 +65,22 @@ func main() {
 			_, isLock = creating[keyMap]
 		}
 
-		if image, ok := cache[keyMap]; ok {
-			sendImage(c,image.image)
+		if img, ok := cache[keyMap]; ok {
+			sendImage(c, img.image)
 			cache[keyMap].lifeTime = time.Now().Add(cacheTimeInSeconds * time.Second).Unix()
 			return
 		}
 
 		creating[keyMap] = true
-		image, err := generateImage(width, height, background, fColor, text)
+		img, err := generateImage(width, height, background, fColor, text)
 		delete(creating,keyMap)
 
 		if err != nil {
-			html(c, http.StatusInternalServerError, renderError(err.Error()))
+			c.HTML(http.StatusInternalServerError, "index.html", gin.H{"error": err.Error()})
 			return
 		}
 
-		sendImage(c, image)
+		sendImage(c, img)
 	})
 
 	r.Run(getPort())
@@ -186,8 +188,4 @@ func getPort() (string) {
 
 	fmt.Printf("Aplicação iniciada na porta %s\n", port)
 	return fmt.Sprintf(":%s", port)
-}
-
-func html(c *gin.Context, code int, text []byte) {
-	c.Data(code, "text/html; charset=utf-8", text)
 }
