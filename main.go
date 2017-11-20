@@ -17,6 +17,7 @@ import (
 	"time"
 	"runtime/debug"
 )
+
 type cacheImage struct{
 	image *bytes.Buffer
 	lifeTime int64
@@ -33,7 +34,6 @@ var cache = make(map[string]*cacheImage)
 var creating = make(map[string]bool)
 
 func main() {
-
 	go clearCache()
 
 	gin.SetMode(gin.ReleaseMode)
@@ -44,36 +44,16 @@ func main() {
 	})
 
 	r.GET("/:size", func(c *gin.Context) {
-		r := regexp.MustCompile(`^(\d+)([xX](\d+))?$`)
-		matches := r.FindStringSubmatch(c.Param("size"))
+		width, height, err := extractSize(c.Param("size"))
 
-		if len(matches) == 0 {
-			html(c, http.StatusInternalServerError, renderError("Parâmetros inválidos"))
+		if err != nil {
+			html(c, http.StatusInternalServerError, renderError(err.Error()))
 			return
 		}
-
-		width, _ := strconv.Atoi(matches[1])
-
-		height, err := strconv.Atoi(matches[3])
 
 		background := c.DefaultQuery("bg", "666666")
 		fColor := c.DefaultQuery("c", "FFFFFF")
-
-		if err != nil {
-			height = width
-		}
-
 		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", width, height))
-
-		if width > maxImageSize || height > maxImageSize {
-			html(c, http.StatusInternalServerError, renderError("A imagem deve ter no máximo 5000 x 5000"))
-			return
-		}
-
-		if width < minImageSize || height < minImageSize {
-			html(c, http.StatusInternalServerError, renderError("A imagem deve ter no mínimo 50 x 50"))
-			return
-		}
 
 		keyMap := string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text
 
@@ -83,7 +63,7 @@ func main() {
 			_, isLock = creating[keyMap]
 		}
 
-		if image, ok := cache[keyMap] ; ok{
+		if image, ok := cache[keyMap]; ok {
 			sendImage(c,image.image)
 			cache[keyMap].lifeTime = time.Now().Add(cacheTimeInSeconds * time.Second).Unix()
 			return
@@ -97,35 +77,61 @@ func main() {
 			html(c, http.StatusInternalServerError, renderError(err.Error()))
 			return
 		}
-		sendImage(c,image)
+
+		sendImage(c, image)
 	})
 
 	r.Run(getPort())
-
 }
 
 func sendImage(c *gin.Context, image *bytes.Buffer){
 	c.Header("Pragma","public")
 	c.Header("Cache-Control","max-age=86400")
-	c.Header("Expires",time.Now().AddDate(60, 0, 0).Format(http.TimeFormat))
+	c.Header("Expires", time.Now().AddDate(60, 0, 0).Format(http.TimeFormat))
+
 	c.Data(http.StatusOK, "image/png", image.Bytes())
 }
 
-func clearCache(){
-		for {
-
-			for k, v := range cache {
-				if v.lifeTime < time.Now().Unix() {
-					delete(cache, k)
-					fmt.Println("removendo cache, index : ",k)
-				}
+func clearCache() {
+	for {
+		for k, v := range cache {
+			if v.lifeTime < time.Now().Unix() {
+				delete(cache, k)
+				fmt.Println("removendo cache, index: ",k)
 			}
-			time.Sleep(cacheRemoveRoutineTimeInSeconds * time.Second)
-			debug.FreeOSMemory()
 		}
+		time.Sleep(cacheRemoveRoutineTimeInSeconds * time.Second)
+		debug.FreeOSMemory()
+	}
 }
 
-func generateImage(width int,height int,background string,fColor string,text string) (*bytes.Buffer, error) {
+func extractSize(size string) (int, int, error) {
+	r := regexp.MustCompile(`^(\d+)([xX](\d+))?$`)
+	matches := r.FindStringSubmatch(size)
+
+	if len(matches) == 0 {
+		return 0, 0, errors.New("Parâmetros inválidos")
+	}
+
+	width, _ := strconv.Atoi(matches[1])
+	height, err := strconv.Atoi(matches[3])
+
+	if err != nil {
+		height = width
+	}
+
+	if width > maxImageSize || height > maxImageSize {
+		return width, height, errors.New("A imagem deve ter no máximo 5000 x 5000")
+	}
+
+	if width < minImageSize || height < minImageSize {
+		return width, height, errors.New("A imagem deve ter no mínimo 50 x 50")
+	}
+
+	return width, height, nil;
+}
+
+func generateImage(width, height int, background, fColor, text string) (*bytes.Buffer, error) {
 	dc := gg.NewContext(width, height)
 	dc.DrawRectangle(0,0, float64(width), float64(height))
 
@@ -178,6 +184,7 @@ func getPort() (string) {
 		port = os.Args[1]
 	}
 
+	fmt.Printf("Aplicação iniciada na porta %s\n", port)
 	return fmt.Sprintf(":%s", port)
 }
 
