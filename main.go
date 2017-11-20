@@ -3,35 +3,37 @@ package main
 import (
 	"github.com/fogleman/gg"
 	"github.com/gin-gonic/gin"
-	"strconv"
-	"fmt"
-	"regexp"
-	"os"
-	"net/http"
 	"github.com/lucasb-eyer/go-colorful"
+	"runtime/debug"
+	"image/png"
+	"net/http"
+	"strconv"
+	"regexp"
+	"errors"
+	"fmt"
+	"os"
 	"math"
 	"image"
 	"bytes"
-	"image/png"
-	"errors"
 	"time"
-	"runtime/debug"
 )
 
-type cacheImage struct{
-	image *bytes.Buffer
+type cacheImage struct {
+	image    *bytes.Buffer
 	lifeTime int64
 }
 
 const (
-	maxImageSize = 5000
-	minImageSize = 50
-	cacheTimeInSeconds = 100
+	maxImageSize                    = 5000
+	minImageSize                    = 50
+	cacheTimeInSeconds              = 100
 	cacheRemoveRoutineTimeInSeconds = 5
 )
 
-var cache = make(map[string]*cacheImage)
-var creating = make(map[string]bool)
+var (
+	cache    = make(map[string]*cacheImage)
+	creating = make(map[string]bool)
+)
 
 func main() {
 	go clearCache()
@@ -46,21 +48,24 @@ func main() {
 	})
 
 	r.GET("/:size", func(c *gin.Context) {
-		width, height, err := extractSize(c.Param("size"))
-
+		w, h, err := extractSize(c)
 		if err != nil {
 			c.HTML(http.StatusInternalServerError, "index.html", gin.H{"error": err.Error()})
 			return
 		}
 
-		background := c.DefaultQuery("bg", "666666")
-		fColor := c.DefaultQuery("c", "FFFFFF")
-		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", width, height))
+		bg, fg, err := extractColors(c)
+		if err != nil {
+			c.HTML(http.StatusInternalServerError, "index.html", gin.H{"error": err.Error()})
+			return
+		}
 
-		keyMap := string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text
+		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", w, h))
+
+		keyMap := string(w) + ";" + string(h) + ";" + bg.Hex() + ";" + fg.Hex() + ";" + text
 
 		var isLock bool = false
-		for _, isLock = creating[keyMap]; isLock ; {
+		for _, isLock = creating[keyMap]; isLock; {
 			time.Sleep(5 * time.Millisecond)
 			_, isLock = creating[keyMap]
 		}
@@ -72,8 +77,8 @@ func main() {
 		}
 
 		creating[keyMap] = true
-		img, err := generateImage(width, height, background, fColor, text)
-		delete(creating,keyMap)
+		img, err := generateImage(w, h, text, bg, fg)
+		delete(creating, keyMap)
 
 		if err != nil {
 			c.HTML(http.StatusInternalServerError, "index.html", gin.H{"error": err.Error()})
@@ -86,9 +91,9 @@ func main() {
 	r.Run(getPort())
 }
 
-func sendImage(c *gin.Context, image *bytes.Buffer){
-	c.Header("Pragma","public")
-	c.Header("Cache-Control","max-age=86400")
+func sendImage(c *gin.Context, image *bytes.Buffer) {
+	c.Header("Pragma", "public")
+	c.Header("Cache-Control", "max-age=86400")
 	c.Header("Expires", time.Now().AddDate(60, 0, 0).Format(http.TimeFormat))
 
 	c.Data(http.StatusOK, "image/png", image.Bytes())
@@ -99,7 +104,7 @@ func clearCache() {
 		for k, v := range cache {
 			if v.lifeTime < time.Now().Unix() {
 				delete(cache, k)
-				fmt.Println("removendo cache, index: ",k)
+				fmt.Println("removendo cache, index: ", k)
 			}
 		}
 		time.Sleep(cacheRemoveRoutineTimeInSeconds * time.Second)
@@ -107,9 +112,9 @@ func clearCache() {
 	}
 }
 
-func extractSize(size string) (int, int, error) {
+func extractSize(c *gin.Context) (int, int, error) {
 	r := regexp.MustCompile(`^(\d+)([xX](\d+))?$`)
-	matches := r.FindStringSubmatch(size)
+	matches := r.FindStringSubmatch(c.Param("size"))
 
 	if len(matches) == 0 {
 		return 0, 0, errors.New("Parâmetros inválidos")
@@ -133,44 +138,47 @@ func extractSize(size string) (int, int, error) {
 	return width, height, nil;
 }
 
-func generateImage(width, height int, background, fColor, text string) (*bytes.Buffer, error) {
+func extractColors(c *gin.Context) (colorful.Color, colorful.Color, error) {
+	bg, err := colorful.Hex("#" + c.DefaultQuery("bg", "666666"))
+	if err != nil {
+		return colorful.Color{}, colorful.Color{}, errors.New("Cor de fundo incorreta")
+	}
+
+	fg, err := colorful.Hex("#" + c.DefaultQuery("fg", "FFFFFF"))
+	if err != nil {
+		return colorful.Color{}, colorful.Color{}, errors.New("Cor do texto incorreta")
+	}
+
+	return bg, fg, nil
+}
+
+func generateImage(width, height int, text string, bg, fg colorful.Color) (*bytes.Buffer, error) {
 	dc := gg.NewContext(width, height)
-	dc.DrawRectangle(0,0, float64(width), float64(height))
+	dc.DrawRectangle(0, 0, float64(width), float64(height))
 
-	bgColor, err := colorful.Hex("#" + background)
-
-	if err != nil {
-		return nil, errors.New("Cor de fundo incorreta")
-	}
-
-	dc.SetColor(bgColor)
+	dc.SetColor(bg)
 	dc.Fill()
-
-	fontColor, err := colorful.Hex("#" + fColor)
-
-	if err != nil {
-		return nil, errors.New("Cor do texto incorreta")
-	}
 
 	points := math.Min(float64(width), float64(height)) / 6
 
-	dc.SetColor(fontColor);
+	dc.SetColor(fg)
 	if err := dc.LoadFontFace("Roboto-Medium.ttf", points); err != nil {
 		return nil, errors.New("Ocorreu um erro para encontrar a fonte")
 	}
 
-	dc.DrawStringWrapped(text, float64(width/2), float64(height/2), 0.5, 0.5, float64(width - 10), 1.3, gg.AlignCenter)
+	dc.DrawStringWrapped(text, float64(width/2), float64(height/2), 0.5, 0.5, float64(width-10), 1.3, gg.AlignCenter)
 	data, err := imageToBytes(dc.Image())
 
 	if err != nil {
 		return nil, errors.New("Ocorreu um erro para processar a imagem")
 	}
 
-	cache[string(width) +";"+ string(height) +";"+ background +";"+ fColor +";"+ text] = &cacheImage{
-		image:data,lifeTime:time.Now().Add(cacheTimeInSeconds * time.Second).Unix(),
+	cache[string(width)+";"+string(height)+";"+bg.Hex()+";"+fg.Hex()+";"+text] = &cacheImage{
+		image:    data,
+		lifeTime: time.Now().Add(cacheTimeInSeconds * time.Second).Unix(),
 	}
 
-	return data,nil
+	return data, nil
 }
 
 func imageToBytes(image image.Image) (*bytes.Buffer, error) {
