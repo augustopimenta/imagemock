@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	maxImageSize                    = 5000
-	minImageSize                    = 50
+	maxImageSize = 5000
+	minImageSize = 50
 )
 
 func main() {
@@ -40,7 +40,7 @@ func main() {
 	})
 
 	r.GET("/:size", func(c *gin.Context) {
-		w, h, err := extractSize(c)
+		w, h, r, err := extractSize(c)
 		if err != nil {
 			c.HTML(http.StatusInternalServerError, "index.html", gin.H{"error": err.Error()})
 			return
@@ -54,7 +54,7 @@ func main() {
 
 		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", w, h))
 
-		keyMap := makeKey(w, h, bg, fg, text)
+		keyMap := makeKey(w, h, bg, fg, r, text)
 
 		var isLock bool = false
 		for _, isLock = creating[keyMap]; isLock; {
@@ -68,7 +68,7 @@ func main() {
 		}
 
 		creating[keyMap] = true
-		img, err := generateImage(w, h, text, bg, fg)
+		img, err := generateImage(w, h, text, bg, fg, r)
 		delete(creating, keyMap)
 
 		if err != nil {
@@ -105,12 +105,12 @@ func clearCache() {
 	}
 }
 
-func extractSize(c *gin.Context) (int, int, error) {
+func extractSize(c *gin.Context) (int, int, float64, error) {
 	r := regexp.MustCompile(`^(\d+)([xX](\d+))?$`)
 	matches := r.FindStringSubmatch(c.Param("size"))
 
 	if len(matches) == 0 {
-		return 0, 0, errors.New("Parâmetros inválidos")
+		return 0, 0, 0, errors.New("Parâmetros inválidos")
 	}
 
 	width, _ := strconv.Atoi(matches[1])
@@ -121,14 +121,20 @@ func extractSize(c *gin.Context) (int, int, error) {
 	}
 
 	if width > maxImageSize || height > maxImageSize {
-		return width, height, errors.New("A imagem deve ter no máximo 5000 x 5000")
+		return width, height, 0, errors.New("A imagem deve ter no máximo 5000 x 5000")
 	}
 
 	if width < minImageSize || height < minImageSize {
-		return width, height, errors.New("A imagem deve ter no mínimo 50 x 50")
+		return width, height, 0, errors.New("A imagem deve ter no mínimo 50 x 50")
 	}
 
-	return width, height, nil;
+	round, err := strconv.ParseFloat(c.DefaultQuery("r", "0"), 64)
+
+	if err != nil || round < 0 {
+		return width, height, round, errors.New("O arredondamento deve ser maior ou igual a 0")
+	}
+
+	return width, height, round, nil;
 }
 
 func extractColors(c *gin.Context) (colorful.Color, colorful.Color, error) {
@@ -145,9 +151,9 @@ func extractColors(c *gin.Context) (colorful.Color, colorful.Color, error) {
 	return bg, fg, nil
 }
 
-func generateImage(width, height int, text string, bg, fg colorful.Color) (*bytes.Buffer, error) {
+func generateImage(width, height int, text string, bg, fg colorful.Color, r float64) (*bytes.Buffer, error) {
 	dc := gg.NewContext(width, height)
-	dc.DrawRectangle(0, 0, float64(width), float64(height))
+	dc.DrawRoundedRectangle(0, 0, float64(width), float64(height), r)
 
 	dc.SetColor(bg)
 	dc.Fill()
@@ -166,7 +172,7 @@ func generateImage(width, height int, text string, bg, fg colorful.Color) (*byte
 		return nil, errors.New("Ocorreu um erro para processar a imagem")
 	}
 
-	PutCache(makeKey(width, height, bg, fg, text), data)
+	PutCache(makeKey(width, height, bg, fg, r, text), data)
 
 	return data, nil
 }
@@ -178,6 +184,6 @@ func imageToBytes(image image.Image) (*bytes.Buffer, error) {
 	return buf, err;
 }
 
-func makeKey(w, h int, bg, fg colorful.Color, text string) string {
-	return fmt.Sprintf("%d;%d;%s;%s;%s", w, h, bg.Hex(), fg.Hex(), text)
+func makeKey(w, h int, bg, fg colorful.Color, r float64, text string) string {
+	return fmt.Sprintf("%d;%d;%s;%s;%f;%s", w, h, bg.Hex(), fg.Hex(), r, text)
 }
