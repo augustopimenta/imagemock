@@ -18,21 +18,9 @@ import (
 	"time"
 )
 
-type cacheImage struct {
-	image    *bytes.Buffer
-	lifeTime int64
-}
-
 const (
 	maxImageSize                    = 5000
 	minImageSize                    = 50
-	cacheTimeInSeconds              = 100
-	cacheRemoveRoutineTimeInSeconds = 5
-)
-
-var (
-	cache    = make(map[string]*cacheImage)
-	creating = make(map[string]bool)
 )
 
 func main() {
@@ -62,7 +50,7 @@ func main() {
 
 		text := c.DefaultQuery("t", fmt.Sprintf("%d x %d", w, h))
 
-		keyMap := string(w) + ";" + string(h) + ";" + bg.Hex() + ";" + fg.Hex() + ";" + text
+		keyMap := makeKey(w, h, bg, fg, text)
 
 		var isLock bool = false
 		for _, isLock = creating[keyMap]; isLock; {
@@ -70,9 +58,8 @@ func main() {
 			_, isLock = creating[keyMap]
 		}
 
-		if img, ok := cache[keyMap]; ok {
-			sendImage(c, img.image)
-			cache[keyMap].lifeTime = time.Now().Add(cacheTimeInSeconds * time.Second).Unix()
+		if img, ok := GetCache(keyMap); ok {
+			sendImage(c, img)
 			return
 		}
 
@@ -104,7 +91,7 @@ func clearCache() {
 		for k, v := range cache {
 			if v.lifeTime < time.Now().Unix() {
 				delete(cache, k)
-				fmt.Println("removendo cache, index: ", k)
+				fmt.Println("Removendo cache, index: ", k)
 			}
 		}
 		time.Sleep(cacheRemoveRoutineTimeInSeconds * time.Second)
@@ -173,12 +160,13 @@ func generateImage(width, height int, text string, bg, fg colorful.Color) (*byte
 		return nil, errors.New("Ocorreu um erro para processar a imagem")
 	}
 
-	cache[string(width)+";"+string(height)+";"+bg.Hex()+";"+fg.Hex()+";"+text] = &cacheImage{
-		image:    data,
-		lifeTime: time.Now().Add(cacheTimeInSeconds * time.Second).Unix(),
-	}
+	PutCache(makeKey(width, height, bg, fg, text), data)
 
 	return data, nil
+}
+
+func makeKey(w, h int, bg, fg colorful.Color, text string) string {
+	return fmt.Sprintf("%d;%d;%s;%s;%s", w, h, bg.Hex(), fg.Hex(), text)
 }
 
 func imageToBytes(image image.Image) (*bytes.Buffer, error) {
