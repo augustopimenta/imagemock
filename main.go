@@ -11,11 +11,11 @@ import (
 	"regexp"
 	"errors"
 	"fmt"
-	"os"
 	"math"
 	"image"
 	"bytes"
 	"time"
+	"flag"
 )
 
 const (
@@ -25,6 +25,10 @@ const (
 
 func main() {
 	go clearCache()
+
+	port := flag.Int("p", 8080, "Porta utilizada pelo servidor web")
+
+	flag.Parse()
 
 	gin.SetMode(gin.ReleaseMode)
 
@@ -75,7 +79,9 @@ func main() {
 		sendImage(c, img)
 	})
 
-	r.Run(getPort())
+	fmt.Printf("Aplicação iniciada na porta %d\n", *port)
+
+	r.Run(fmt.Sprintf(":%d", *port))
 }
 
 func sendImage(c *gin.Context, image *bytes.Buffer) {
@@ -165,10 +171,6 @@ func generateImage(width, height int, text string, bg, fg colorful.Color) (*byte
 	return data, nil
 }
 
-func makeKey(w, h int, bg, fg colorful.Color, text string) string {
-	return fmt.Sprintf("%d;%d;%s;%s;%s", w, h, bg.Hex(), fg.Hex(), text)
-}
-
 func imageToBytes(image image.Image) (*bytes.Buffer, error) {
 	buf := new(bytes.Buffer)
 	err := png.Encode(buf, image)
@@ -176,12 +178,6 @@ func imageToBytes(image image.Image) (*bytes.Buffer, error) {
 	return buf, err;
 }
 
-func getPort() (string) {
-	port := "8080"
-	if len(os.Args) > 1 {
-		port = os.Args[1]
-	}
-
-	fmt.Printf("Aplicação iniciada na porta %s\n", port)
-	return fmt.Sprintf(":%s", port)
+func makeKey(w, h int, bg, fg colorful.Color, text string) string {
+	return fmt.Sprintf("%d;%d;%s;%s;%s", w, h, bg.Hex(), fg.Hex(), text)
 }
