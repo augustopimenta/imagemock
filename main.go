@@ -4,7 +4,6 @@ import (
 	"github.com/fogleman/gg"
 	"github.com/gin-gonic/gin"
 	"github.com/lucasb-eyer/go-colorful"
-	"runtime/debug"
 	"image/png"
 	"net/http"
 	"strconv"
@@ -24,15 +23,21 @@ const (
 )
 
 func main() {
-	go clearCache()
+	go clearOldCache()
 
 	port := flag.Int("p", 8080, "Porta utilizada pelo servidor web")
 
 	flag.Parse()
 
-	gin.SetMode(gin.ReleaseMode)
+	fmt.Printf("Aplicação iniciada na porta %d\n", *port)
 
+	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+
+	mainEngine(r).Run(fmt.Sprintf(":%d", *port))
+}
+
+func mainEngine(r *gin.Engine) *gin.Engine {
 	r.LoadHTMLFiles("index.html")
 
 	r.GET("/", func(c *gin.Context) {
@@ -56,20 +61,12 @@ func main() {
 
 		keyMap := makeKey(w, h, bg, fg, r, text)
 
-		var isLock bool = false
-		for _, isLock = creating[keyMap]; isLock; {
-			time.Sleep(5 * time.Millisecond)
-			_, isLock = creating[keyMap]
-		}
-
-		if img, ok := GetCache(keyMap); ok {
+		if img, ok := getCache(keyMap); ok {
 			sendImage(c, img)
 			return
 		}
 
-		creating[keyMap] = true
 		img, err := generateImage(w, h, text, bg, fg, r)
-		delete(creating, keyMap)
 
 		if err != nil {
 			c.HTML(http.StatusInternalServerError, "index.html", gin.H{"error": err.Error()})
@@ -79,9 +76,7 @@ func main() {
 		sendImage(c, img)
 	})
 
-	fmt.Printf("Aplicação iniciada na porta %d\n", *port)
-
-	r.Run(fmt.Sprintf(":%d", *port))
+	return r
 }
 
 func sendImage(c *gin.Context, image *bytes.Buffer) {
@@ -90,19 +85,6 @@ func sendImage(c *gin.Context, image *bytes.Buffer) {
 	c.Header("Expires", time.Now().AddDate(60, 0, 0).Format(http.TimeFormat))
 
 	c.Data(http.StatusOK, "image/png", image.Bytes())
-}
-
-func clearCache() {
-	for {
-		for k, v := range cache {
-			if v.lifeTime < time.Now().Unix() {
-				delete(cache, k)
-				fmt.Println("Removendo cache, index: ", k)
-			}
-		}
-		time.Sleep(cacheRemoveRoutineTimeInSeconds * time.Second)
-		debug.FreeOSMemory()
-	}
 }
 
 func extractSize(c *gin.Context) (int, int, float64, error) {
@@ -172,7 +154,7 @@ func generateImage(width, height int, text string, bg, fg colorful.Color, r floa
 		return nil, errors.New("Ocorreu um erro para processar a imagem")
 	}
 
-	PutCache(makeKey(width, height, bg, fg, r, text), data)
+	putCache(makeKey(width, height, bg, fg, r, text), data)
 
 	return data, nil
 }
